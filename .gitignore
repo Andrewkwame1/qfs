@@ -1,0 +1,49 @@
+# dependencies
+/node_modules/
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc / OS
+.DS_Store
+Thumbs.db
+desktop.ini
+*.pem
+
+# debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# local env files
+.env
+.env*.local
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# generated analysis / reference material (not source)
+/graphify-out/
+/shots/
+/qfs1/
+
+# scratch scripts & temp outputs (root-level dev experiments)
+/*.cjs
+/*.err
+/*.print.txt
+/cmperr.txt
+/ab.json
+/carmes.json
+/clonecar.json
+/cloneD.json
+/cmpA.json
+/cmpout.json
+/geom2.json
