@@ -22,7 +22,7 @@ reliability-tested money engine. Deploys to Netlify.
 | Landing | Marketing site with markets, plans, reviews, documents, referral capture (`?ref=CODE`) |
 | Auth | Register / login / logout, role-based redirects, suspend enforcement |
 | Wallet | MetaMask / any EIP-1193 wallet on Ethereum mainnet; server-issued single-use challenge, `personal_sign` verification, multiple addresses, disconnect |
-| User dashboard | Balances, deposit/withdraw/invest/loan modals, cards, notifications (mark all read), markets by tab, plans, referrals, history, resources, KYC |
+| User dashboard | Balances, deposit (with pay-to instructions + reference), withdraw/invest/loan modals, cards, notifications (mark all read), markets by tab, plans, referrals, history, resources, KYC |
 | Admin console | Overview stats, users (suspend/activate/role, wallet address column, search by address), deposit & withdrawal review with the payout address shown in full, transactions, plans CRUD, loans approval, documents/reviews/markets CRUD, settings, audit log |
 | Money engine | Integer cents everywhere; PENDING → admin approve/reject; atomic `prisma.$transaction` creates Transaction + LedgerEntry + balance update |
 | Earnings | Deterministic accrual formula, idempotent materializer (unique `EARN-{invId}-{p}` refs), triggered on dashboard read, via a secret-keyed endpoint, and by a Netlify scheduled function |
@@ -48,6 +48,29 @@ never sent.
 
 A verified address is not scammer-proof. Withdrawal approval always shows the full
 address so the admin can compare it against what the user claims.
+
+## Deposits — pay-to instructions
+
+Deposits stay a manual, admin-verified flow, but with the details a user actually
+needs to pay:
+
+1. The admin stores their receiving details in **Admin → Settings**:
+   `deposit_bank_name`, `deposit_bank_account`, `deposit_bank_account_name`,
+   `deposit_btc_address`, `deposit_eth_address`, `deposit_usdt_trc20`,
+   `deposit_usdt_bep20`. A method only appears for users once its address/account
+   is set — blank settings keep the method hidden, so no placeholder details can
+   leak.
+2. In the dashboard's **Add Funds** modal the user picks a method, and a **Pay to**
+   panel shows the company's bank account or crypto address with a copy button.
+3. The modal generates a `DEP-…` **deposit reference** (also copyable). The user
+   includes the reference in their bank transfer description or crypto memo before
+   sending, then submits the request. The reference is served with the request to
+   the admin queue, so a payment can be matched to a specific user.
+4. The admin reviews the request, confirms the transfer, and approves — crediting
+   the balance atomically.
+
+References double as idempotency keys: reusing one short-circuits to the existing
+request, and a reference claimed by another user is refused (409).
 
 
 npm install
@@ -113,7 +136,7 @@ Sign in as the admin user, then visit **/user/admin**. Sections:
 - **Transactions** — immutable ledger of every move
 - **Investment Plans / Documents / Reviews / Markets** — full CRUD
 - **Loans** — approve/reject applications, optional admin note
-- **Settings** — key/value pair editor (`referral_rate_bps`, `min_withdrawal_cents`, …)
+- **Settings** — key/value pair editor (payout details like `deposit_bank_account` / `deposit_usdt_trc20`, plus `referral_rate_bps`, `min_withdrawal_cents`, …)
 - **Audit Log** — every admin mutation, with actor, action, target and metadata
 
 ## Real-time updates
@@ -135,6 +158,16 @@ screen. Pass `{ intervalMs: 0 }` to `useFetch` to opt a screen out.
 This is short-interval polling, not websockets: it needs no extra process or
 infra, and a multi-instance deployment would want a shared store (see
 *Production notes*).
+
+**Live market prices.** The dashboard market feeds (metals, stocks, crypto) are
+decorated with real-time quotes from Yahoo Finance's public chart endpoint
+(`lib/live-prices.ts`) — no API key. Each symbol maps to its upstream ticker
+(indices `^GSPC`/`^IXIC`/`^DJI`, metal futures `GC=F` & friends, stocks by
+ticker, crypto `BTC-USD` & friends). Quotes are fetched in one single-flight
+batch per process every **60s** and cached, so the 15s dashboard poll never
+hammers the feed. The seeded `marketAsset` price/change columns remain the
+last-known fallback when the upstream is unreachable; admin market editing is
+unaffected.
 
 ## Earnings accrual (cron)
 

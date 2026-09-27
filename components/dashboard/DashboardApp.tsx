@@ -99,6 +99,18 @@ function shortAddr(a: string) {
   return a.length < 12 ? a : `${a.slice(0, 6)}…${a.slice(-4)}`;
 }
 
+const REF_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+/** Server accepts reference: 4–80 chars. DEP- + 8 unambiguous chars is unique
+ *  enough per user and survives being rounded up by SMS/notes. */
+function newDepRef(): string {
+  let s = "";
+  const buf = new Uint8Array(8);
+  crypto.getRandomValues(buf);
+  for (const b of buf) s += REF_ALPHABET[b % REF_ALPHABET.length];
+  return `DEP-${s}`;
+}
+
 /**
  * Lets the user pick one of their verified wallets. Selecting is optional — the
  * forms still accept a pasted address — but a connected wallet is the only one
@@ -213,6 +225,9 @@ export default function DashboardApp({ overview }: DashboardAppProps) {
   const [depAmount, setDepAmount] = useState("");
   const [depMethod, setDepMethod] = useState(DEPOSIT_METHODS[0]);
   const [depWallet, setDepWallet] = useState("");
+  const [depRef, setDepRef] = useState(newDepRef);
+  const [depSubmitted, setDepSubmitted] = useState(false);
+  const [copiedKey, setCopiedKey] = useState("");
   const [wdAmount, setWdAmount] = useState("");
   const [wdMethod, setWdMethod] = useState(WITHDRAW_METHODS[0]);
   const [wdDetails, setWdDetails] = useState("");
@@ -273,6 +288,12 @@ export default function DashboardApp({ overview }: DashboardAppProps) {
   const openModal = (key: string) => {
     setMenuOpen(false);
     setSidebarOpen(false);
+    if (key === "deposit") {
+      // Fresh reference + unhide the form for every new deposit request.
+      setDepRef(newDepRef());
+      setDepSubmitted(false);
+      setCopiedKey("");
+    }
     setModal(key);
   };
 
@@ -335,6 +356,17 @@ export default function DashboardApp({ overview }: DashboardAppProps) {
         ? (data?.markets.stocks ?? STOCKS)
         : (data?.markets.crypto ?? CRYPTO);
 
+  const copyText = async (key: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      /* ignore — clipboard unavailable */
+    }
+    setCopiedKey(key);
+    setToast("Copied to clipboard");
+    setTimeout(() => setCopiedKey(""), 1800);
+  };
+
   const copyLink = async () => {
     try {
       await navigator.clipboard.writeText(profile?.referral ?? "");
@@ -384,9 +416,10 @@ export default function DashboardApp({ overview }: DashboardAppProps) {
       await post("/api/deposits", {
         amount,
         method: depMethod,
+        reference: depRef,
         ...(depWallet ? { walletAddress: depWallet } : {}),
       });
-      closeModal();
+      setDepSubmitted(true);
       setToast("Deposit submitted — awaiting review");
       setDepAmount("");
       await refreshOverview();
@@ -773,49 +806,120 @@ export default function DashboardApp({ overview }: DashboardAppProps) {
     </div>
   );
 
+  /** Payment instructions for the selected deposit method (admin-configured). */
+  const renderPayout = (method: string) => {
+    const match = (data?.payout ?? []).find((p) => p.method === method);
+    return (
+      <div className="dash-payto">
+        <div className="dash-form-group">
+          <label htmlFor="dep-ref">Your deposit reference</label>
+          <div className="dash-payto-line">
+            <code className="dash-payto-code" id="dep-ref">
+              {depRef}
+            </code>
+            <button
+              type="button"
+              className="dash-btn ghost dash-payto-copy"
+              onClick={() => copyText("ref", depRef)}
+            >
+              {copiedKey === "ref" ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </div>
+        {match ? (
+          <>
+            <div className="dash-payto-title">Pay to</div>
+            {match.items.map((it) => (
+              <div className="dash-payto-line" key={it.label}>
+                <span className="dash-payto-label">{it.label}</span>
+                <code className="dash-payto-code">{it.value}</code>
+                <button
+                  type="button"
+                  className="dash-btn ghost dash-payto-copy"
+                  onClick={() => copyText(it.label, it.value)}
+                >
+                  {copiedKey === it.label ? "Copied" : "Copy"}
+                </button>
+              </div>
+            ))}
+            <p className="dash-input-note">
+              Include your reference (<b>{depRef}</b>) in the payment description
+              so we can match it to your account. Deposits are credited once
+              confirmed, usually within 24 hours.
+            </p>
+          </>
+        ) : data ? (
+          <p className="dash-input-note" style={{ marginTop: 8 }}>
+            Payment instructions for {method} aren&apos;t set up yet — please
+            contact support.
+          </p>
+        ) : null}
+      </div>
+    );
+  };
+
   const renderDepositModal = () => (
     <div className="dash-modal-body">
-      <div className="dash-form-group">
-        <label htmlFor="dep-method">Deposit Method</label>
-        <select
-          id="dep-method"
-          className="dash-select"
-          value={depMethod}
-          onChange={(e) => setDepMethod(e.target.value)}
-        >
-          {DEPOSIT_METHODS.map((m) => (
-            <option key={m}>{m}</option>
-          ))}
-        </select>
-      </div>
-      <div className="dash-form-group">
-        <label htmlFor="dep-amount">Amount</label>
-        <div className="dash-input-suffix">
-          <input
-            id="dep-amount"
-            className="dash-input"
-            placeholder="100.00"
-            inputMode="decimal"
-            value={depAmount}
-            onChange={(e) => setDepAmount(e.target.value)}
-          />
-          <span>USD</span>
+      {depSubmitted ? (
+        <div className="dash-payto-success">
+          <h3>Deposit request submitted</h3>
+          <p>
+            Send the payment below and we&apos;ll credit your balance once it&apos;s
+            confirmed. Keep your reference <b>{depRef}</b> handy.
+          </p>
+          {renderPayout(depMethod)}
+          <button className="dash-btn primary block" onClick={closeModal}>
+            Done
+          </button>
         </div>
-      </div>
-      {WALLET_METHODS.has(depMethod) && (
-        <WalletPicker
-          wallets={wallets}
-          onPick={setDepWallet}
-          emptyHint="Connect a wallet to attach an address to this deposit."
-        />
-      )}
+      ) : (
+        <>
+          <div className="dash-form-group">
+            <label htmlFor="dep-method">Deposit Method</label>
+            <select
+              id="dep-method"
+              className="dash-select"
+              value={depMethod}
+              onChange={(e) => setDepMethod(e.target.value)}
+            >
+              {DEPOSIT_METHODS.map((m) => (
+                <option key={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+          <div className="dash-form-group">
+            <label htmlFor="dep-amount">Amount</label>
+            <div className="dash-input-suffix">
+              <input
+                id="dep-amount"
+                className="dash-input"
+                placeholder="100.00"
+                inputMode="decimal"
+                value={depAmount}
+                onChange={(e) => setDepAmount(e.target.value)}
+              />
+              <span>USD</span>
+            </div>
+          </div>
+          {WALLET_METHODS.has(depMethod) && (
+            <WalletPicker
+              wallets={wallets}
+              onPick={setDepWallet}
+              emptyHint="Connect a wallet to attach an address to this deposit."
+            />
+          )}
 
-      <p className="dash-input-note">
-        Deposits are reviewed within 24 hours and credited to your balance. Min amount $50.00.
-      </p>
-      <button className="dash-btn primary block" disabled={busy} onClick={submitDeposit}>
-        {busy ? "Submitting…" : "Submit Deposit Request"} <RightArrow size={14} />
-      </button>
+          <p className="dash-input-note">
+            Deposits are reviewed within 24 hours and credited to your balance. Min amount $50.00.
+          </p>
+
+          {renderPayout(depMethod)}
+
+          <button className="dash-btn primary block" disabled={busy} onClick={submitDeposit}>
+            {busy ? "Submitting…" : "Submit Deposit Request"} <RightArrow size={14} />
+          </button>
+        </>
+      )}
     </div>
   );
 
@@ -1138,7 +1242,7 @@ export default function DashboardApp({ overview }: DashboardAppProps) {
         return null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modal, pdfDoc, plans, invPlan, busy, notifications, transactions, data]);
+  }, [modal, pdfDoc, plans, invPlan, busy, notifications, transactions, data, depRef, depSubmitted, copiedKey]);
 
   return (
     <div className={`qfs-dash${sidebarOpen ? " sidebar-open" : ""}`} data-theme={theme}>

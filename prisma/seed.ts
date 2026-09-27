@@ -120,13 +120,20 @@ async function main() {
     })),
   });
 
-  // ---- settings ----
+  // ---- settings (payout keys are empty until the admin adds their own details) ----
   await prisma.setting.createMany({
     data: [
       { key: "site_name", value: "QFS" },
       { key: "support_email", value: "support@qfs.local" },
       { key: "referral_rate_bps", value: "500" },
       { key: "min_withdrawal_cents", value: "5000" },
+      { key: "deposit_bank_name", value: "" },
+      { key: "deposit_bank_account", value: "" },
+      { key: "deposit_bank_account_name", value: "" },
+      { key: "deposit_btc_address", value: "" },
+      { key: "deposit_eth_address", value: "" },
+      { key: "deposit_usdt_trc20", value: "" },
+      { key: "deposit_usdt_bep20", value: "" },
     ],
   });
 

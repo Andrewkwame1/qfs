@@ -23,6 +23,13 @@ const KNOWN: Record<string, { label: string; hint: string }> = {
   min_withdrawal_cents: { label: "Min withdrawal (cents)", hint: "Minimum withdrawal amount, in cents." },
   min_deposit_cents: { label: "Min deposit (cents)", hint: "Minimum deposit amount, in cents." },
   platform_fee_bps: { label: "Platform fee (bps)", hint: "Fee applied to withdrawals, in basis points." },
+  deposit_bank_name: { label: "Deposit: bank name", hint: "Bank the user transfers to, e.g. \"GTBank\"." },
+  deposit_bank_account: { label: "Deposit: account number", hint: "Reveals the Bank Transfer deposit method once set." },
+  deposit_bank_account_name: { label: "Deposit: account name", hint: "Name on the receiving account." },
+  deposit_btc_address: { label: "Deposit: Bitcoin address", hint: "Company BTC wallet the user pays to." },
+  deposit_eth_address: { label: "Deposit: Ethereum address", hint: "Company ETH wallet the user pays to." },
+  deposit_usdt_trc20: { label: "Deposit: USDT (TRC20) address", hint: "Company USDT TRC20 address (T-prefixed)." },
+  deposit_usdt_bep20: { label: "Deposit: USDT (BEP20) address", hint: "Company USDT BEP20 address (0x-prefixed)." },
 };
 
 export default function AdminSettingsPage() {

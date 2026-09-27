@@ -4,11 +4,14 @@ import { prisma } from "../db";
 import { formatMoney, monthlyRoiCents } from "../money";
 import { referralUrl } from "./referral";
 import { accrueEarningsForUser } from "./account";
+import { getLiveQuotes, type LiveQuote } from "../live-prices";
+import { getPayoutMethods } from "../deposit-payout";
 import type {
   BalanceCard,
   DocItem,
   MarketItem,
   OverviewData,
+  PayoutMethod,
   ReviewItem,
   TxItem,
 } from "../api-types";
@@ -93,7 +96,7 @@ export async function getDashboardOverview(userId: string): Promise<OverviewData
   // Materialize any earnings that have matured since last view (idempotent).
   await accrueEarningsForUser(userId);
 
-  const [user, account, investments, transactions, plans, markets, documents, reviews, cards, notifications, loans, referredCount, referralEarnings] =
+  const [user, account, investments, transactions, plans, markets, documents, reviews, cards, notifications, loans, referredCount, referralEarnings, liveQuotes, payoutMethods] =
     await Promise.all([
       prisma.user.findUnique({ where: { id: userId } }),
       prisma.account.findUnique({ where: { userId } }),
@@ -116,6 +119,9 @@ export async function getDashboardOverview(userId: string): Promise<OverviewData
       prisma.loan.findMany({ where: { userId, status: { in: ["ACTIVE", "PENDING"] } }, orderBy: { createdAt: "desc" } }),
       prisma.user.count({ where: { referredById: userId } }),
       prisma.referralEarning.aggregate({ where: { referrerId: userId }, _sum: { amountCents: true } }),
+      // Live quotes run alongside the DB reads (single-flight, cached 60s).
+      getLiveQuotes().catch(() => new Map<string, LiveQuote>()),
+      getPayoutMethods().catch(() => [] as PayoutMethod[]),
     ]);
 
   if (!user || !account) throw new Error("User or account missing");
@@ -232,6 +238,16 @@ export async function getDashboardOverview(userId: string): Promise<OverviewData
     color: m.color,
   }));
 
+  // Overlay live quotes where available; DB values remain the fallback.
+  for (const it of marketItems) {
+    const q = liveQuotes.get(it.sym);
+    if (q) {
+      it.price = q.price;
+      it.chg = q.chg;
+      it.up = q.up;
+    }
+  }
+
   const byType = (type: string) => marketItems.filter((_, i) => markets[i].type === type);
 
   const docItems: DocItem[] = documents.map((d) => ({
@@ -325,5 +341,6 @@ export async function getDashboardOverview(userId: string): Promise<OverviewData
         time: fmtDateTime(n.createdAt),
       })),
     },
+    payout: payoutMethods,
   };
 }

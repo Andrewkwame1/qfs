@@ -54,6 +54,9 @@ export type NotificationItem = {
   time: string;
 };
 
+export type PayoutItem = { label: string; value: string };
+export type PayoutMethod = { method: string; items: PayoutItem[] };
+
 export type OverviewData = {
   user: {
     name: string;
@@ -85,6 +88,8 @@ export type OverviewData = {
   plans: InvestPlanItem[];
   referral: { url: string; count: number; earnings: string };
   notifications: { unread: number; items: NotificationItem[] };
+  /** Where to send a deposit, keyed by method (empty until the admin sets addresses). */
+  payout: PayoutMethod[];
 };
 
 /* ---------- Admin payloads ---------- */
