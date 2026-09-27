@@ -180,6 +180,15 @@ export const requestDecisionSchema = z.object({
   note: z.string().trim().max(300).optional(),
 });
 
+export const adjustmentSchema = z.object({
+  scope: z.enum(["USER", "ALL"]),
+  /** Required when scope is USER; ignored for ALL. */
+  userId: z.string().max(64).optional(),
+  direction: z.enum(["CREDIT", "DEBIT"]),
+  amount: moneyAmount,
+  note: z.string().trim().min(3, "Add a note at least 3 characters long").max(300),
+});
+
 export const settingUpsertSchema = z.object({
   key: z.string().trim().min(1).max(60),
   value: z.string().max(4000),

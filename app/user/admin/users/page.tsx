@@ -8,6 +8,8 @@ import {
   Confirm,
   DataTable,
   ErrorBanner,
+  Field,
+  Modal,
   PageHeader,
   Pagination,
   Spinner,
@@ -32,6 +34,10 @@ export default function AdminUsersPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<{ row: AdminUserRow; action: "SUSPEND" | "ACTIVATE" | "SET_ROLE"; role?: "ADMIN" | "USER" } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [adjust, setAdjust] = useState<{ scope: "USER" | "ALL"; row?: AdminUserRow } | null>(null);
+  const [adjDirection, setAdjDirection] = useState<"CREDIT" | "DEBIT">("CREDIT");
+  const [adjAmount, setAdjAmount] = useState("");
+  const [adjNote, setAdjNote] = useState("");
 
   const load = useCallback(
     async (p: number, s: string, r: string, st: string) => {
@@ -81,6 +87,50 @@ export default function AdminUsersPage() {
     } catch (e) {
       setToast((e as Error).message);
       setPendingAction(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openAdjust = (scope: "USER" | "ALL", row?: AdminUserRow) => {
+    setAdjust({ scope, row });
+    setAdjDirection("CREDIT");
+    setAdjAmount("");
+    setAdjNote("");
+  };
+
+  const runAdjust = async () => {
+    if (!adjust) return;
+    const amount = Number(adjAmount);
+    if (!amount || amount <= 0) {
+      setToast("Enter a valid amount");
+      return;
+    }
+    if (adjNote.trim().length < 3) {
+      setToast("Add a note at least 3 characters long");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await apiSend<{ scope: string; applied: number }>("/api/admin/adjustments", "POST", {
+        scope: adjust.scope,
+        userId: adjust.row?.id,
+        direction: adjDirection,
+        amount,
+        note: adjNote.trim(),
+      });
+      setToast(
+        adjust.scope === "ALL"
+          ? `${res.applied} user${res.applied === 1 ? "" : "s"} adjusted`
+          : `Balance ${adjDirection === "CREDIT" ? "credited" : "debited"}`
+      );
+      setAdjust(null);
+      setAdjAmount("");
+      setAdjNote("");
+      reload();
+    } catch (e) {
+      setToast((e as Error).message);
+      setAdjust(null);
     } finally {
       setBusy(false);
     }
@@ -148,6 +198,8 @@ export default function AdminUsersPage() {
     },
     { label: "Balance", render: (u) => <span className="num">{fmtMoney(u.balanceCents)}</span> },
     { label: "Available", render: (u) => <span className="num">{fmtMoney(u.availableCents)}</span> },
+    { label: "Deposits", render: (u) => <span className="num">{fmtMoney(u.depositCents)}</span> },
+    { label: "Withdrawals", render: (u) => <span className="num">{fmtMoney(u.withdrawalCents)}</span> },
     { label: "Referred", render: (u) => <span className="num">{u.referredCount}</span> },
     { label: "Member Since", render: (u) => <span style={{ whiteSpace: "nowrap" }}>{fmtDate(u.memberSince).split(",")[0]}</span> },
     {
@@ -155,6 +207,9 @@ export default function AdminUsersPage() {
       className: "num",
       render: (u) => (
         <div className="adm-actions-cell">
+          <button className="adm-link-btn" onClick={() => openAdjust("USER", u)}>
+            Adjust
+          </button>
           {u.status === "SUSPENDED" ? (
             <button className="adm-link-btn good" onClick={() => setPendingAction({ row: u, action: "ACTIVATE" })}>
               Activate
@@ -183,6 +238,11 @@ export default function AdminUsersPage() {
       <PageHeader
         title="Users"
         subtitle="Every account with its name, email and contact number. Suspending a user revokes their active sessions."
+        actions={
+          <button className="adm-btn primary" onClick={() => openAdjust("ALL")}>
+            Adjust all users
+          </button>
+        }
       />
 
       <div className="adm-inline-form">
@@ -267,6 +327,65 @@ export default function AdminUsersPage() {
           onConfirm={runAction}
           onCancel={() => setPendingAction(null)}
         />
+      )}
+
+      {adjust && (
+        <Modal
+          title={adjust.scope === "ALL" ? "Adjust all users" : `Adjust ${adjust.row?.name ?? "user"}`}
+          onClose={() => setAdjust(null)}
+        >
+          {adjust.scope === "ALL" ? (
+            <p className="adm-confirm-text">
+              Applies to every non-admin account, active and suspended alike. Admins are excluded.
+            </p>
+          ) : (
+            <p className="adm-confirm-text">
+              {adjust.row?.name} — balance {fmtMoney(adjust.row?.balanceCents ?? 0)}, available{" "}
+              {fmtMoney(adjust.row?.availableCents ?? 0)}. Debits cannot exceed the available balance.
+            </p>
+          )}
+          <div className="adm-inline-form" style={{ alignItems: "flex-end" }}>
+            <Field label="Direction">
+              <select
+                className="adm-select"
+                value={adjDirection}
+                onChange={(e) => setAdjDirection(e.target.value as "CREDIT" | "DEBIT")}
+              >
+                <option value="CREDIT">Credit (add profit)</option>
+                <option value="DEBIT">Debit (deduct)</option>
+              </select>
+            </Field>
+            <Field label="Amount (USD)">
+              <input
+                className="adm-input"
+                inputMode="decimal"
+                placeholder="100.00"
+                value={adjAmount}
+                onChange={(e) => setAdjAmount(e.target.value)}
+              />
+            </Field>
+          </div>
+          <Field label="Note" hint="Shown to the user and recorded in the audit log">
+            <input
+              className="adm-input"
+              placeholder="e.g. Q3 performance bonus"
+              value={adjNote}
+              onChange={(e) => setAdjNote(e.target.value)}
+            />
+          </Field>
+          <div className="adm-row-end" style={{ marginTop: 16 }}>
+            <button className="adm-btn ghost" onClick={() => setAdjust(null)} disabled={busy}>
+              Cancel
+            </button>
+            <button
+              className={`adm-btn ${adjDirection === "DEBIT" ? "danger" : "primary"}`}
+              onClick={runAdjust}
+              disabled={busy}
+            >
+              {busy ? "Working…" : adjDirection === "CREDIT" ? "Credit balance" : "Debit balance"}
+            </button>
+          </div>
+        </Modal>
       )}
 
       <Toast message={toast} onDone={() => setToast(null)} />

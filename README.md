@@ -23,7 +23,7 @@ reliability-tested money engine. Deploys to Netlify.
 | Auth | Register / login / logout, role-based redirects, suspend enforcement |
 | Wallet | MetaMask / any EIP-1193 wallet on Ethereum mainnet; server-issued single-use challenge, `personal_sign` verification, multiple addresses, disconnect |
 | User dashboard | Balances, deposit (with pay-to instructions + reference), withdraw/invest/loan modals, cards, notifications (mark all read), markets by tab, plans, referrals, history, resources, KYC |
-| Admin console | Overview stats, users (suspend/activate/role, wallet address column, search by address), deposit & withdrawal review with the payout address shown in full, transactions, plans CRUD, loans approval, documents/reviews/markets CRUD, settings, audit log |
+| Admin console | Overview stats (incl. lifetime deposit/withdrawal totals), users (suspend/activate/role, manual balance adjustments, per-user deposit/withdrawal totals, search by address), deposit & withdrawal review with the payout address shown in full, transactions, plans CRUD, loans approval, documents/reviews/markets CRUD, settings, audit log |
 | Money engine | Integer cents everywhere; PENDING → admin approve/reject; atomic `prisma.$transaction` creates Transaction + LedgerEntry + balance update |
 | Earnings | Deterministic accrual formula, idempotent materializer (unique `EARN-{invId}-{p}` refs), triggered on dashboard read, via a secret-keyed endpoint, and by a Netlify scheduled function |
 | Referrals | One-time bonus per referred investment (`referral_rate_bps`, default 500), enforced by unique `investmentId` |
@@ -71,6 +71,34 @@ needs to pay:
 
 References double as idempotency keys: reusing one short-circuits to the existing
 request, and a reference claimed by another user is refused (409).
+
+## Withdrawals — limits
+
+Withdrawals are admin-reviewed too, and a few rules apply at submission time
+(server-side, so typing a bigger number in the modal changes nothing):
+
+- **Never above available balance** — funds reserved by pending withdrawals and
+  money committed to investments are untouchable; exceeding available is rejected
+  before the request is even created.
+- **`min_withdrawal_cents`** — the seeded $50 floor (0 = no floor).
+- **`max_withdrawal_daily_cents`** — an optional per-user 24h ceiling across all
+  requests (0 = unlimited). Rejected requests don't count against it.
+
+The dashboard shows your available balance right in the withdraw modal as a
+client-side mirror; the API stays the source of truth.
+
+## Admin finance — adjusting balances
+
+From **Admin → Users**, an admin can **Adjust** a single account (credit "profit"
+or debit), or use **Adjust all users** for a bulk credit/debit that hits every
+non-admin account (active and suspended; admins are excluded). Each adjustment:
+
+- lands as a completed `ADJUSTMENT` transaction (`ADJ-…` reference, "Manual" method)
+  plus a ledger entry with the resulting balance,
+- never pushes a user's available balance below zero — and bulk debits skip the
+  users who can't afford them instead of zeroing them,
+- notifies the user and is recorded in the audit log (`FIN.ADJUST` / `FIN.ADJUST_ALL`),
+- appears in the user's transaction history as an **Adjustment** row.
 
 
 npm install
@@ -128,15 +156,22 @@ which never pass through Next.
 
 Sign in as the admin user, then visit **/user/admin**. Sections:
 
-- **Overview** — KPIs and the priority queue (pending deposits/withdrawals/loans)
-- **Users** — search/filter, suspend/activate, promote/demote admins
+- **Overview** — KPIs incl. lifetime total deposits/withdrawals (only money actually
+  credited/paid) and the priority queue (pending deposits/withdrawals/loans)
+- **Users** — search/filter, suspend/activate, promote/demote admins, per-user lifetime
+  deposits/withdrawals, and **Adjust** (credit or debit a balance)
 - **Requests** — the manual review workflow. Approving a deposit credits the user
   atomically; approving a withdrawal pays out reserved funds; rejecting a withdrawal
   releases the reservation.
 - **Transactions** — immutable ledger of every move
 - **Investment Plans / Documents / Reviews / Markets** — full CRUD
 - **Loans** — approve/reject applications, optional admin note
-- **Settings** — key/value pair editor (payout details like `deposit_bank_account` / `deposit_usdt_trc20`, plus `referral_rate_bps`, `min_withdrawal_cents`, …)
+- **Finance** — from the Users screen, an admin can credit or debit a single account or
+  all non-admin accounts at once (active and suspended). Each lands as a completed
+  **ADJUSTMENT** transaction with a note, notifies the user, and is audit-logged as
+  `FIN.ADJUST` / `FIN.ADJUST_ALL`. Debits can never push a user's available balance below
+  zero; users who can't afford a bulk debit are skipped.
+- **Settings** — key/value pair editor (payout details like `deposit_bank_account` / `deposit_usdt_trc20`, plus `referral_rate_bps`, `min_withdrawal_cents`, `max_withdrawal_daily_cents`, …)
 - **Audit Log** — every admin mutation, with actor, action, target and metadata
 
 ## Real-time updates

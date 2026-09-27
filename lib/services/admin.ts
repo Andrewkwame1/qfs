@@ -19,6 +19,8 @@ export async function getAdminStats(): Promise<AdminStats> {
     activeUsers,
     suspendedUsers,
     balanceAgg,
+    completedDeposits,
+    completedWithdrawals,
     pendingDeposits,
     pendingWithdrawals,
     pendingLoans,
@@ -32,6 +34,14 @@ export async function getAdminStats(): Promise<AdminStats> {
     prisma.user.count({ where: { status: "ACTIVE", role: "USER" } }),
     prisma.user.count({ where: { status: "SUSPENDED" } }),
     prisma.account.aggregate({ _sum: { balanceCents: true } }),
+    prisma.transaction.aggregate({
+      where: { type: "DEPOSIT", status: "COMPLETED" },
+      _sum: { amountCents: true },
+    }),
+    prisma.transaction.aggregate({
+      where: { type: "WITHDRAWAL", status: "COMPLETED" },
+      _sum: { amountCents: true },
+    }),
     prisma.depositRequest.aggregate({ where: { status: "PENDING" }, _count: true, _sum: { amountCents: true } }),
     prisma.withdrawalRequest.aggregate({ where: { status: "PENDING" }, _count: true, _sum: { amountCents: true } }),
     prisma.loan.count({ where: { status: "PENDING" } }),
@@ -42,6 +52,8 @@ export async function getAdminStats(): Promise<AdminStats> {
   ]);
 
   const totalBalanceCents = balanceAgg._sum.balanceCents ?? 0;
+  const totalDepositsCents = completedDeposits._sum.amountCents ?? 0;
+  const totalWithdrawalsCents = completedWithdrawals._sum.amountCents ?? 0;
   return {
     totalUsers,
     newUsers30d,
@@ -49,6 +61,10 @@ export async function getAdminStats(): Promise<AdminStats> {
     suspendedUsers,
     totalBalanceCents,
     totalBalance: formatMoney(totalBalanceCents),
+    totalDepositsCents,
+    totalDeposits: formatMoney(totalDepositsCents),
+    totalWithdrawalsCents,
+    totalWithdrawals: formatMoney(totalWithdrawalsCents),
     pendingDeposits: { count: pendingDeposits._count, sumCents: pendingDeposits._sum.amountCents ?? 0 },
     pendingWithdrawals: { count: pendingWithdrawals._count, sumCents: pendingWithdrawals._sum.amountCents ?? 0 },
     pendingLoans,
@@ -99,6 +115,24 @@ export async function listUsers(input: { search?: string; role?: string; status?
     }),
   ]);
 
+  /* Lifetime deposit/withdrawal totals per visible user. Two groupBy queries
+     keyed to this page's users — never an N+1, and only COMPLETED money counts. */
+  const ids = users.map((u) => u.id);
+  const [depAgg, wdAgg] = await Promise.all([
+    prisma.transaction.groupBy({
+      by: ["userId"],
+      where: { userId: { in: ids }, type: "DEPOSIT", status: "COMPLETED" },
+      _sum: { amountCents: true },
+    }),
+    prisma.transaction.groupBy({
+      by: ["userId"],
+      where: { userId: { in: ids }, type: "WITHDRAWAL", status: "COMPLETED" },
+      _sum: { amountCents: true },
+    }),
+  ]);
+  const depByUser = new Map(depAgg.map((r) => [r.userId, r._sum.amountCents ?? 0]));
+  const wdByUser = new Map(wdAgg.map((r) => [r.userId, r._sum.amountCents ?? 0]));
+
   const rows: AdminUserRow[] = users.map((u) => ({
     id: u.id,
     name: u.name,
@@ -111,6 +145,8 @@ export async function listUsers(input: { search?: string; role?: string; status?
     kycLevel: u.kycLevel,
     balanceCents: u.account?.balanceCents ?? 0,
     availableCents: u.account?.availableCents ?? 0,
+    depositCents: depByUser.get(u.id) ?? 0,
+    withdrawalCents: wdByUser.get(u.id) ?? 0,
     memberSince: u.memberSince.toISOString(),
     lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : null,
     referralCode: u.referralCode,

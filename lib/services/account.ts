@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "../db";
 import { ApiError } from "../api/errors";
-import { monthlyRoiCents, monthsBetween } from "../money";
+import { monthlyRoiCents, monthsBetween, formatMoney } from "../money";
 import { getSettingInt, newReference, notify, auditLog } from "./admin-log";
 
 export type DepositInput = {
@@ -141,6 +141,30 @@ export async function createWithdrawal(userId: string, input: WithdrawalInput) {
   if (existing) {
     if (existing.userId !== userId) throw ApiError.conflict("Reference already in use");
     return { request: existing, created: false };
+  }
+
+  /* Seeded settings pin the floor and ceiling: min_withdrawal_cents (0 = no
+     floor) and max_withdrawal_daily_cents (0 = unlimited). Rejected requests
+     don't count against the cap; approved and pending ones do. */
+  const [minWithdrawal, maxDaily] = await Promise.all([
+    getSettingInt("min_withdrawal_cents", 0),
+    getSettingInt("max_withdrawal_daily_cents", 0),
+  ]);
+  if (minWithdrawal > 0 && input.amountCents < minWithdrawal) {
+    throw ApiError.badRequest(`Minimum withdrawal is ${formatMoney(minWithdrawal)}`);
+  }
+  if (maxDaily > 0) {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const agg = await prisma.withdrawalRequest.aggregate({
+      where: { userId, createdAt: { gte: since }, status: { not: "REJECTED" } },
+      _sum: { amountCents: true },
+    });
+    const used = agg._sum.amountCents ?? 0;
+    if (used + input.amountCents > maxDaily) {
+      throw ApiError.badRequest(
+        `Daily withdrawal limit reached — ${formatMoney(maxDaily)} max per 24 hours`
+      );
+    }
   }
 
   const account = await accountOrThrow(userId);
@@ -506,4 +530,124 @@ export async function accrueEarningsForUser(userId: string, now = new Date()) {
   }
 
   return { credited, totalCents };
+}
+
+/* ---------------- Manual balance adjustments (admin) ---------------- */
+
+/**
+ * Credit (positive) or debit (negative) a single user's balance.
+ * Debits can never push available below zero — the same guard that protects
+ * withdrawals. Every change lands as a completed ADJUSTMENT transaction plus a
+ * ledger entry, the user is notified, and the action is audit-logged.
+ */
+export async function adjustUserBalance(actorId: string, userId: string, amountCents: number, note: string) {
+  if (!Number.isInteger(amountCents) || amountCents === 0) {
+    throw ApiError.badRequest("Adjustment amount must be a non-zero whole number of cents");
+  }
+  /* Mirrors updateUser: admins manage USER accounts, never themselves or each
+     other. The bulk path already filters to role USER, so this keeps both
+     entry points honest. */
+  const target = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+  if (!target) throw ApiError.notFound("User not found");
+  if (target.role !== "USER") {
+    throw ApiError.badRequest("Adjustments target regular user accounts only");
+  }
+
+  const now = new Date();
+  const debit = amountCents < 0;
+  const abs = Math.abs(amountCents);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const account = await tx.account.findUnique({ where: { userId } });
+    if (!account) throw ApiError.notFound("Account not found");
+    if (debit && account.availableCents < abs) {
+      throw ApiError.badRequest("Cannot deduct more than the user's available balance");
+    }
+
+    const trx = await tx.transaction.create({
+      data: {
+        userId,
+        type: "ADJUSTMENT",
+        amountCents: abs,
+        method: "Manual",
+        reference: newReference("ADJ"),
+        status: "COMPLETED",
+        completedAt: now,
+        note,
+        adminNote: note,
+      },
+    });
+
+    const newBalance = account.balanceCents + amountCents;
+    const newAvailable = account.availableCents + amountCents;
+    await tx.account.update({
+      where: { userId },
+      data: { balanceCents: newBalance, availableCents: newAvailable },
+    });
+    await tx.ledgerEntry.create({
+      data: {
+        accountId: account.id,
+        movement: debit ? "DEBIT" : "CREDIT",
+        amountCents: abs,
+        balanceAfterCents: newBalance,
+        txId: trx.id,
+        note: `Manual ${debit ? "deduction" : "credit"} — ${note}`,
+      },
+    });
+
+    return { newBalance, newAvailable };
+  });
+
+  await auditLog(actorId, "ADMIN", "FIN.ADJUST", "User", userId, {
+    amountCents: debit ? -abs : abs,
+    note,
+  });
+  await notify(
+    userId,
+    debit ? "Account adjustment" : "Profit credited",
+    `${debit ? "Deducted" : "Credited"} ${formatMoney(abs)} to your balance${note ? ` — ${note}` : ""}.`
+  );
+
+  return { applied: true, debit, abs, ...result };
+}
+
+/**
+ * Apply one adjustment to every non-admin user (active and suspended alike —
+ * the money is theirs regardless of login state). Under-funded accounts are
+ * skipped for debits, never zeroed. Reports how many actually landed.
+ */
+export async function adjustAllUsers(actorId: string, amountCents: number, note: string) {
+  const users = await prisma.user.findMany({
+    where: { role: "USER" },
+    select: { id: true },
+  });
+
+  const results: Array<{ userId: string; applied: boolean; reason?: string }> = [];
+  for (const u of users) {
+    try {
+      await adjustUserBalance(actorId, u.id, amountCents, note);
+      results.push({ userId: u.id, applied: true });
+    } catch (e) {
+      results.push({
+        userId: u.id,
+        applied: false,
+        reason: e instanceof ApiError ? e.message : "Unexpected error",
+      });
+    }
+  }
+
+  const applied = results.filter((r) => r.applied).length;
+  const skipped = results.length - applied;
+  await auditLog(actorId, "ADMIN", "FIN.ADJUST_ALL", "User", null, {
+    amountCents,
+    note,
+    total: results.length,
+    applied,
+    skipped,
+  });
+
+  return { total: results.length, applied, skipped };
 }

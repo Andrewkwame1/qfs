@@ -456,6 +456,12 @@ export default function DashboardApp({ overview }: DashboardAppProps) {
       setToast("Enter a valid amount");
       return;
     }
+    // Client-side mirror of the server guard — catches it before the round-trip.
+    const availCents = data?.balance.availableCents ?? 0;
+    if (availCents > 0 && Math.round(amount * 100) > availCents) {
+      setToast(`Amount exceeds your available balance (${availableText})`);
+      return;
+    }
     setBusy(true);
     try {
       // A connected wallet is a known-good destination; a typed-in one is not.
@@ -951,6 +957,9 @@ export default function DashboardApp({ overview }: DashboardAppProps) {
           />
           <span>USD</span>
         </div>
+        <p className="dash-input-note">
+          Available: <b>{availableText}</b> — you can&apos;t withdraw more than this.
+        </p>
       </div>
       {WALLET_METHODS.has(wdMethod) ? (
         <WalletPicker

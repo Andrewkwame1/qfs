@@ -106,6 +106,10 @@ export type AdminUserRow = {
   kycLevel: number;
   balanceCents: number;
   availableCents: number;
+  /** Lifetime sum of COMPLETED deposit transactions (money actually credited). */
+  depositCents: number;
+  /** Lifetime sum of COMPLETED withdrawal transactions (money actually paid out). */
+  withdrawalCents: number;
   memberSince: string;
   lastLoginAt: string | null;
   referralCode: string;
@@ -152,6 +156,12 @@ export type AdminStats = {
   suspendedUsers: number;
   totalBalanceCents: number;
   totalBalance: string;
+  /** Lifetime sum of COMPLETED deposit transactions. */
+  totalDepositsCents: number;
+  totalDeposits: string;
+  /** Lifetime sum of COMPLETED withdrawal transactions. */
+  totalWithdrawalsCents: number;
+  totalWithdrawals: string;
   pendingDeposits: { count: number; sumCents: number };
   pendingWithdrawals: { count: number; sumCents: number };
   pendingLoans: number;

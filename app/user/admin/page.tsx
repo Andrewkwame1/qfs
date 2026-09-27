@@ -51,6 +51,8 @@ export default function AdminOverviewPage() {
         <Stat label="Total Users" value={String(data.totalUsers)} sub={<>+{data.newUsers30d} new in 30d</>} icon={<DashboardIcon />} />
         <Stat label="Active Users" value={String(data.activeUsers)} sub={`${data.suspendedUsers} suspended`} icon={<Wallet />} />
         <Stat label="Platform Balance" value={data.totalBalance} sub="All user accounts" icon={<Wallet />} />
+        <Stat label="Total Deposits" value={data.totalDeposits} sub="Lifetime, credited" icon={<ArrowDown />} />
+        <Stat label="Total Withdrawals" value={data.totalWithdrawals} sub="Lifetime, paid out" icon={<ArrowUp />} />
         <Stat label="Pending Deposits" value={String(data.pendingDeposits.count)} sub={`${fmtMoney(data.pendingDeposits.sumCents)} awaiting review`} icon={<ArrowDown />} />
         <Stat label="Pending Withdrawals" value={String(data.pendingWithdrawals.count)} sub={`${fmtMoney(data.pendingWithdrawals.sumCents)} awaiting review`} icon={<ArrowUp />} />
         <Stat label="Pending Loans" value={String(data.pendingLoans)} sub="Loan applications to review" icon={<Wallet />} />
