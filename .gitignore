@@ -23,6 +23,16 @@ yarn-error.log*
 .env
 .env*.local
 
+# sqlite databases (dev + test)
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.db.bak-*
+
+# test coverage
+/coverage/
+
 # vercel
 .vercel
 
@@ -34,6 +44,8 @@ next-env.d.ts
 /graphify-out/
 /shots/
 /qfs1/
+/scripts/responsive-report.txt
+/scripts/shots/
 
 # scratch scripts & temp outputs (root-level dev experiments)
 /*.cjs

@@ -1,0 +1,46 @@
+# Netlify deployment for QFS.
+#
+# The app is Next.js 15 (App Router) on PostgreSQL. `migrate deploy` runs in the
+# build so the schema is applied before the new functions go live — the baseline
+# migration is idempotent, so a rebuild with no changes is a no-op.
+
+[build]
+  command = "npm run db:deploy && npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  # Prisma needs openssl on some Linux images.
+  PRISMA_SKIP_POSTINSTALL_GENERATE = "false"
+  # Next reads this to decide dev-vs-prod behaviour in next.config.mjs.
+  NODE_ENV = "production"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Daily earnings sweep at 03:17 UTC. Off the hour on purpose: the :00 slot is the
+# most contended on Netlify's scheduler.
+[functions."accrue"]
+  schedule = "17 3 * * *"
+  # Postgres connections are finite; one long sweep beats many parallel ones.
+  node_bundler = "esbuild"
+
+# The Next.js serverless function.
+[functions."___NEXTSERVER"]
+  node_bundler = "esbuild"
+
+# Keep the migration state file out of the build cache so a cached layer can never
+# skip a migration.
+[build.processing]
+  skip_processing = false
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    X-DNS-Prefetch-Control = "off"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+    Cross-Origin-Opener-Policy = "same-origin"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains; preload"

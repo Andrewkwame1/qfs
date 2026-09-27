@@ -359,6 +359,10 @@ p {
 }
 
 .header-nav a {
+  /* inline-flex so the tap target is a real 32px box, not just the text line */
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
   font-size: 13px;
   font-weight: 500;
   text-transform: uppercase;
@@ -380,6 +384,9 @@ p {
 }
 
 .header-login {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
   font-size: 14px;
   font-weight: 500;
   color: var(--white);
@@ -402,8 +409,9 @@ p {
 .header-hamburger {
   display: none;
   cursor: pointer;
-  width: 34px;
-  height: 34px;
+  /* touch-sized; the header row is 90px tall so this does not shift the layout */
+  width: 40px;
+  height: 40px;
   flex-direction: column;
   justify-content: center;
   gap: 5px;
@@ -1284,14 +1292,22 @@ p {
 }
 
 .socials a {
+  /* 40px hit area around a 14px glyph */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
   color: var(--white);
   font-size: 14px;
   line-height: 1;
-  transition: color 0.3s;
+  transition: color 0.3s, background 0.3s;
 }
 
 .socials a:hover {
   color: var(--accent);
+  background: rgba(255, 255, 255, 0.06);
 }
 
 .footer-cols {
@@ -1306,7 +1322,16 @@ p {
 }
 
 .footer-col ul li {
-  margin-bottom: 8px;
+  /* the link carries its own padding now, so the old margin would double up */
+  margin-bottom: 0;
+}
+
+/* Footer links are text-only, so they need explicit padding to be tappable */
+.footer-col ul a,
+.email-list a,
+.copyright-actions a {
+  display: inline-block;
+  padding: 8px 0;
 }
 
 .footer-col ul a,
@@ -1638,6 +1663,17 @@ p {
   letter-spacing: 0.1px;
 }
 
+/* Two-column row (first + last name) */
+.auth-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.auth-row > * {
+  min-width: 0;
+}
+
 .auth-input {
   display: flex;
   align-items: center;
@@ -1673,6 +1709,9 @@ p {
 .auth-input input {
   flex: 1;
   min-width: 0;
+  /* fill the 54px box vertically so the whole field is a tap target, not a
+     20px strip between the icon and the edge */
+  align-self: stretch;
   background: transparent;
   border: none;
   outline: none;
@@ -1685,10 +1724,42 @@ p {
   color: rgba(255, 255, 255, 0.26);
 }
 
+/* Country select — matches the input treatment, with a custom chevron */
+.auth-input select {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0 26px 0 0;
+  color: #f2f2f4;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.4;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239b9aa3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right center;
+}
+
+.auth-input select:invalid {
+  color: rgba(255, 255, 255, 0.26);
+}
+
+.auth-input select option {
+  background: #14141c;
+  color: #f2f2f4;
+}
+
 .auth-input-right {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-width: 40px;
+  min-height: 40px;
   padding: 6px;
   color: #9b9aa3;
   background: none;
@@ -1712,7 +1783,19 @@ p {
   font-size: 13px;
 }
 
-.auth-row {
+.auth-form-error {
+  margin: 14px 0 0;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 95, 119, 0.35);
+  background: rgba(255, 95, 119, 0.08);
+  color: #ff8fa1;
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+/* remember-me + forgot password (flex row, distinct from the .auth-row grid) */
+.auth-form-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1724,13 +1807,14 @@ p {
   display: inline-flex;
   align-items: center;
   gap: 9px;
+  padding: 7px 0;
   cursor: pointer;
   user-select: none;
 }
 
 .auth-check input {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   margin: 0;
   accent-color: #a3309c;
   cursor: pointer;
@@ -1743,6 +1827,8 @@ p {
 
 .auth-link,
 .auth-footer a {
+  display: inline-block;
+  padding: 7px 2px;
   color: #ceff0c;
   font-weight: 500;
   transition: color 0.25s ease;
@@ -1850,5 +1936,11 @@ p {
 @media (max-height: 760px) {
   .auth-page {
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .auth-row {
+    grid-template-columns: 1fr;
   }
 }

@@ -1,7 +1,10 @@
+"use client";
+
 import Reveal from "./Reveal";
 import { ArrowRight } from "./icons";
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import { useState, type FormEvent, type ReactNode } from "react";
 
 /* ---------- Shared auth page shell (login + register) ----------
    Immersive dark split layout: brand panel + form card. */
@@ -20,6 +23,10 @@ type AuthLayoutProps = {
   children: ReactNode;
   submitLabel: string;
   footer: ReactNode;
+  /** Fallback redirect target when no API endpoint is provided. */
+  to?: string;
+  /** Real auth API endpoint (e.g. /api/auth/login). Submits the form to it. */
+  endpoint?: string;
 };
 
 export default function AuthLayout({
@@ -29,7 +36,55 @@ export default function AuthLayout({
   children,
   submitLabel,
   footer,
+  to,
+  endpoint,
 }: AuthLayoutProps) {
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+
+    if (!endpoint) {
+      if (to) router.push(to);
+      return;
+    }
+
+    const form = e.currentTarget;
+    const data = Object.fromEntries(new FormData(form).entries());
+
+    // Client-side password match check for register.
+    if (data.password && data.confirmPassword && data.password !== data.confirmPassword) {
+      setError("Passwords do not match");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok || !json?.ok) {
+        setError(json?.error?.message ?? "Something went wrong. Please try again.");
+        return;
+      }
+
+      const role = json.data?.user?.role;
+      router.push(role === "ADMIN" ? "/user/admin" : (to ?? "/user/user/dashboard"));
+      router.refresh();
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="auth-page">
       <div className="auth-glow auth-glow-one" aria-hidden="true" />
@@ -112,11 +167,17 @@ export default function AuthLayout({
               </Reveal>
 
               <Reveal delay={240} animation="fadeInUp" duration={900}>
-                <form className="auth-form" noValidate>
+                <form className="auth-form" noValidate onSubmit={handleSubmit}>
                   {children}
 
-                  <button type="submit" className="auth-submit">
-                    {submitLabel}
+                  {error && (
+                    <p className="auth-form-error" role="alert">
+                      {error}
+                    </p>
+                  )}
+
+                  <button type="submit" className="auth-submit" disabled={busy}>
+                    {busy ? "Please wait…" : submitLabel}
                     <ArrowRight size={16} />
                   </button>
                 </form>
@@ -143,6 +204,9 @@ type FieldProps = {
   icon?: ReactNode;
   right?: ReactNode;
   error?: string;
+  /** Render a <select> (country picker) instead of a text input. */
+  select?: boolean;
+  options?: string[];
 };
 
 export function AuthField({
@@ -155,6 +219,8 @@ export function AuthField({
   icon,
   right,
   error,
+  select,
+  options,
 }: FieldProps) {
   return (
     <Reveal delay={400} animation="fadeInUp" duration={900}>
@@ -162,14 +228,33 @@ export function AuthField({
         <label htmlFor={id}>{label}</label>
         <div className="auth-input">
           {icon && <span className="auth-input-icon">{icon}</span>}
-          <input
-            id={id}
-            name={name}
-            type={type}
-            placeholder={placeholder}
-            autoComplete={autoComplete}
-            required
-          />
+          {select ? (
+            <select
+              id={id}
+              name={name}
+              required
+              defaultValue=""
+              className="auth-select"
+            >
+              <option value="" disabled>
+                {placeholder ?? "Select…"}
+              </option>
+              {options?.map((o) => (
+                <option key={o} value={o}>
+                  {o}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              id={id}
+              name={name}
+              type={type}
+              placeholder={placeholder}
+              autoComplete={autoComplete}
+              required
+            />
+          )}
           {right && <span className="auth-input-right">{right}</span>}
         </div>
         {error && <p className="auth-msg">{error}</p>}
