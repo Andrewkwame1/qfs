@@ -47,7 +47,11 @@ const HEADERS = {
 };
 
 const TTL_MS = 60_000;
-const TIMEOUT_MS = 8_000;
+/* A single symbol may take up to TIMEOUT_MS, but the whole refresh must never
+   outlive BUDGET_MS — otherwise one slow Yahoo batch stalls every dashboard
+   overview for half a minute. Remaining budget shrinks each timeout. */
+const TIMEOUT_MS = 5_000;
+const BUDGET_MS = 6_000;
 const CONCURRENCY = 6;
 
 type CacheEntry = { at: number; values: Map<string, LiveQuote> };
@@ -65,9 +69,9 @@ function fmtChg(pct: number): string {
   return `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
 }
 
-async function fetchQuote(ticker: string): Promise<{ price: number; pct: number }> {
+async function fetchQuote(ticker: string, timeoutMs: number): Promise<{ price: number; pct: number }> {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=5d`;
-  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
+  const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(timeoutMs) });
   if (!res.ok) throw new Error(`Yahoo ${ticker}: HTTP ${res.status}`);
   const meta = (await res.json())?.chart?.result?.[0]?.meta;
   const price = Number(meta?.regularMarketPrice);
@@ -86,14 +90,20 @@ async function fetchQuote(ticker: string): Promise<{ price: number; pct: number 
 async function refresh(): Promise<Map<string, LiveQuote>> {
   const symbols = Object.keys(TICKER);
   const values = new Map<string, LiveQuote>();
+  const started = Date.now();
   // Fetch in small batches so any upstream throttling hits a few symbols at a
-  // time; a failed symbol simply keeps its DB price for this cycle.
+  // time; a failed symbol simply keeps its DB price for this cycle. The budget
+  // shrinks each batch's timeout so the whole refresh can never stall long
+  // enough to delay a dashboard overview.
   for (let i = 0; i < symbols.length; i += CONCURRENCY) {
+    const remaining = BUDGET_MS - (Date.now() - started);
+    if (remaining <= 0) break;
     const batch = symbols.slice(i, i + CONCURRENCY);
+    const timeout = Math.min(TIMEOUT_MS, Math.max(250, remaining));
     await Promise.all(
       batch.map(async (sym) => {
         try {
-          const { price, pct } = await fetchQuote(TICKER[sym]);
+          const { price, pct } = await fetchQuote(TICKER[sym], timeout);
           values.set(sym, { price: fmtPrice(price), chg: fmtChg(pct), up: pct >= 0 });
         } catch {
           /* upstream blip — fall back to the seeded price */

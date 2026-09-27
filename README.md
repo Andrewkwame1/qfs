@@ -165,9 +165,11 @@ decorated with real-time quotes from Yahoo Finance's public chart endpoint
 (indices `^GSPC`/`^IXIC`/`^DJI`, metal futures `GC=F` & friends, stocks by
 ticker, crypto `BTC-USD` & friends). Quotes are fetched in one single-flight
 batch per process every **60s** and cached, so the 15s dashboard poll never
-hammers the feed. The seeded `marketAsset` price/change columns remain the
-last-known fallback when the upstream is unreachable; admin market editing is
-unaffected.
+hammers the feed. The whole refresh runs under a hard ~6s wall-clock budget
+(per-fetch timeouts shrink as the budget drains), so a slow upstream can never
+stall an overview past that. The seeded `marketAsset` price/change columns
+remain the last-known fallback when the upstream is unreachable; admin market
+editing is unaffected.
 
 ## Earnings accrual (cron)
 
